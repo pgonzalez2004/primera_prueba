@@ -1,4 +1,7 @@
 base_url=http://localhost:8000
-endpoint_rfids=/rfids
-endpoint_ejemlares= 1
-
+endpoint_ejemplares=/api/ejemplares
+endpoint_ubicaciones=/api/ubicaciones
+endpoint_registros=/api/registros
+endpoint_rfids=/api/rfid
+grupo_ejemplar=Enganche
+mes=02/2026
