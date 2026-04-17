@@ -1,1 +1,4 @@
 base_url=http://localhost:8000
+endpoint_rfids=/rfids
+endpoint_ejemlares= 1
+

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from carga_datos.data_loader import (
-    cargar_configuracion
+    cargar_configuracion, cargar_ejemplares
 )
 
 
@@ -11,7 +11,9 @@ CONFIG_PATH = BASE_DIR / 'config.txt'
 
 def main() -> None:
     config = cargar_configuracion(CONFIG_PATH)
-
+    ejemplares=cargar_ejemplares()
+    
+    print(ejemplares)
     print('\n=== RESUMEN DE EJECUCIÓN ===')
     
 

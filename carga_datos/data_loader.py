@@ -10,6 +10,14 @@ ConfigDict = dict[str, str]
 JSONList = list[dict[str, Any]]
 
 
+## Carga de Registros, ejemplares (Enganche/Cría), ubicaciones (Comederos, bebederos)
+## Se establezca el mes oara la carga de datos 
+
+def cargar_ejemplares():
+    ejemplares="Hola"
+    
+    return ejemplares
+
 
 def cargar_configuracion(ruta_config: str | Path) -> ConfigDict:
     config: ConfigDict = {}
