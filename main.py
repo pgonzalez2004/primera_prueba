@@ -24,6 +24,8 @@ def main() -> None:
     print(f"Registros finales filtrados: {len(datos['registros_filtrados'])}")
     print("\n=== MATRIZ COEXISTENCIA ===")
     print(datos["matriz_coexistencia"])
+    print(f"Método matriz: {datos['metodo_matriz']}")
+    print(f"Umbral (segundos): {datos['umbral_segundos']}")
 
     print(f"\n=== EJEMPLARES '{datos['grupo_objetivo']}' (primeros 3) ===")
     for ejemplar in datos['ejemplares_enganche'][:3]:

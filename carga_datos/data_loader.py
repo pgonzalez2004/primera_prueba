@@ -132,10 +132,28 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         ubicaciones_comer_beber,
     )
     
-    matriz_coexistencia = calcular_matriz_coexistencia(
-    registros_filtrados,
-    ejemplares_enganche,
-    )
+    metodo_matriz = config.get("metodo_matriz", "tiempo_total")
+    umbral_segundos = int(config.get("umbral_segundos", 30))
+
+    if metodo_matriz == "tiempo_total":
+        matriz_coexistencia = calcular_matriz_coexistencia(
+            registros_filtrados,
+            ejemplares_enganche,
+        )
+    elif metodo_matriz == "coincidencias":
+        matriz_coexistencia = calcular_matriz_coincidencias_puras(
+            registros_filtrados,
+        )
+    elif metodo_matriz == "coincidencias_umbral":
+        matriz_coexistencia = calcular_matriz_coincidencias_umbral(
+            registros_filtrados,
+            umbral_segundos,
+        )
+    else:
+        matriz_coexistencia = calcular_matriz_coexistencia(
+            registros_filtrados,
+            ejemplares_enganche,
+        )
 
     return {
         "config": config,
@@ -149,6 +167,9 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         "ejemplares_enganche": ejemplares_enganche,
         "ubicaciones_comer_beber": ubicaciones_comer_beber,
         "registros_filtrados": registros_filtrados,
+        "matriz_coexistencia": matriz_coexistencia,
+        "metodo_matriz": metodo_matriz,
+        "umbral_segundos": umbral_segundos,
         "matriz_coexistencia": matriz_coexistencia,
     }
     
@@ -227,6 +248,70 @@ def calcular_matriz_coexistencia(
             if solape > 0:
                 matriz[ej_a][ej_b] += solape
                 matriz[ej_b][ej_a] += solape
+
+    return {k: dict(v) for k, v in matriz.items()}
+
+def calcular_matriz_coincidencias_puras(
+    registros: list[dict[str, Any]],
+) -> dict[int, dict[int, int]]:
+    """
+    Matriz donde cada célula es el número de veces que dos ejemplares coinciden
+    en una misma ubicación, sin importar cuántos segundos compartan.
+    """
+    matriz = defaultdict(lambda: defaultdict(int))
+    registros_norm = normalizar_registros_para_matriz(registros)
+    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
+
+    for r in registros_norm:
+        registros_por_ubicacion[r["ubi"]].append(r)
+
+    for _, regs_ubi in registros_por_ubicacion.items():
+        for reg_a, reg_b in combinations(regs_ubi, 2):
+            ej_a = reg_a["ejemplar"]
+            ej_b = reg_b["ejemplar"]
+            if ej_a == ej_b:
+                continue
+
+            solape = calcular_solape_segundos(
+                reg_a["entrada"], reg_a["salida"],
+                reg_b["entrada"], reg_b["salida"],
+            )
+            if solape > 0:
+                matriz[ej_a][ej_b] += 1
+                matriz[ej_b][ej_a] += 1
+
+    return {k: dict(v) for k, v in matriz.items()}
+
+
+def calcular_matriz_coincidencias_umbral(
+    registros: list[dict[str, Any]],
+    umbral_segundos: int,
+) -> dict[int, dict[int, int]]:
+    """
+    Matriz donde cada célula es el número de veces que dos ejemplares coinciden
+    en una ubicación y el tiempo compartido supera un umbral X (en segundos).
+    """
+    matriz = defaultdict(lambda: defaultdict(int))
+    registros_norm = normalizar_registros_para_matriz(registros)
+    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
+
+    for r in registros_norm:
+        registros_por_ubicacion[r["ubi"]].append(r)
+
+    for _, regs_ubi in registros_por_ubicacion.items():
+        for reg_a, reg_b in combinations(regs_ubi, 2):
+            ej_a = reg_a["ejemplar"]
+            ej_b = reg_b["ejemplar"]
+            if ej_a == ej_b:
+                continue
+
+            solape = calcular_solape_segundos(
+                reg_a["entrada"], reg_a["salida"],
+                reg_b["entrada"], reg_b["salida"],
+            )
+            if solape >= umbral_segundos:
+                matriz[ej_a][ej_b] += 1
+                matriz[ej_b][ej_a] += 1
 
     return {k: dict(v) for k, v in matriz.items()}
 
