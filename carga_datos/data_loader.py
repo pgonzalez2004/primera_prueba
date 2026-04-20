@@ -114,10 +114,13 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
     ejemplares = cargar_ejemplares(config)
     ubicaciones = cargar_ubicaciones(config)
     # registros = cargar_registros(config)
-    registros = cargar_registros_ficticios("registros_sesiones_generados.csv")
+    registros = cargar_registros_ficticios(
+        r"C:\Users\PilarGonzálezBejaran\Desktop\HORSEDATA PILAR\registros_sesiones_generados.csv"
+    )
+
 
     grupo_objetivo = config.get("grupo_ejemplar", "Enganche")
-    mes_objetivo = config.get("mes", "02/2026")
+    mes_objetivo = config.get("mes")       # devuelve None si falta
     fecha_inicio, fecha_fin = obtener_intervalo_mes(mes_objetivo)
 
     ejemplares_enganche = filtrar_ejemplares_por_grupo(
