@@ -1,11 +1,19 @@
 from __future__ import annotations
-from collections import defaultdict
+
+import csv
 from datetime import datetime, timedelta
-from itertools import combinations
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
+
+from matriz_relaciones.matrix import (
+    calcular_matriz_coexistencia,
+    calcular_matriz_coincidencias_puras,
+    calcular_matriz_coincidencias_umbral,
+)
+
 
 def construir_url(config: dict[str, Any], endpoint_key: str) -> str:
     base_url = config.get("base_url")
@@ -17,6 +25,7 @@ def construir_url(config: dict[str, Any], endpoint_key: str) -> str:
         raise ValueError(f"Falta '{endpoint_key}' en config.txt")
 
     return urljoin(base_url.rstrip("/") + "/", endpoint.lstrip("/"))
+
 
 def cargar_configuracion(ruta_config):
     config: dict[str, Any] = {}
@@ -32,7 +41,6 @@ def cargar_configuracion(ruta_config):
 
 
 def obtener_intervalo_mes(mes_anyo: str):
-    # Formato esperado "MM/YYYY", por ejemplo "02/2026"
     mes, anyo = mes_anyo.split("/")
     mes = int(mes)
     anyo = int(anyo)
@@ -101,13 +109,32 @@ def filtrar_registros(
     ejemplares: list[dict[str, Any]],
     ubicaciones: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    # MODO SIMULACIÓN: filtramos solo por ubicaciones de comer/beber
     ids_ubicaciones = {u["id"] for u in ubicaciones}
 
     return [
         r for r in registros
         if r.get("ubi") in ids_ubicaciones
     ]
+
+
+def cargar_registros_ficticios(desde_csv: str | Path) -> list[dict[str, Any]]:
+    ruta = Path(desde_csv)
+    registros: list[dict[str, Any]] = []
+
+    with ruta.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter=";")
+        for row in reader:
+            registros.append({
+                "id": int(row["id"]),
+                "entrada": row["entrada"],
+                "salida": row["salida"],
+                "duracion": int(row["duracion"]),
+                "detecciones": int(row["detecciones"]),
+                "ejemplar": int(row["ejemplar_id"]),
+                "ubi": int(row["ubi_id"]),
+            })
+
+    return registros
 
 
 def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
@@ -118,9 +145,8 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         r"C:\Users\PilarGonzálezBejaran\Desktop\HORSEDATA PILAR\registros_sesiones_generados.csv"
     )
 
-
     grupo_objetivo = config.get("grupo_ejemplar", "Enganche")
-    mes_objetivo = config.get("mes")       # devuelve None si falta
+    mes_objetivo = config["mes"]
     fecha_inicio, fecha_fin = obtener_intervalo_mes(mes_objetivo)
 
     ejemplares_enganche = filtrar_ejemplares_por_grupo(
@@ -134,7 +160,7 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         ejemplares_enganche,
         ubicaciones_comer_beber,
     )
-    
+
     metodo_matriz = config.get("metodo_matriz", "tiempo_total")
     umbral_segundos = int(config.get("umbral_segundos", 30))
 
@@ -173,169 +199,4 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         "matriz_coexistencia": matriz_coexistencia,
         "metodo_matriz": metodo_matriz,
         "umbral_segundos": umbral_segundos,
-        "matriz_coexistencia": matriz_coexistencia,
     }
-    
-def parsear_fecha_iso(fecha_str: str) -> datetime:
-    return datetime.fromisoformat(fecha_str)
-
-
-def calcular_solape_segundos(
-    entrada_a: datetime,
-    salida_a: datetime,
-    entrada_b: datetime,
-    salida_b: datetime,
-) -> int:
-    inicio_solape = max(entrada_a, entrada_b)
-    fin_solape = min(salida_a, salida_b)
-    return max(0, int((fin_solape - inicio_solape).total_seconds()))
-
-
-def normalizar_registros_para_matriz(
-    registros: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    registros_normalizados = []
-
-    for r in registros:
-        entrada = r.get("entrada")
-        salida = r.get("salida")
-        ejemplar = r.get("ejemplar")
-        ubicacion = r.get("ubi")
-
-        if not entrada or not salida or ejemplar is None or ubicacion is None:
-            continue
-
-        registros_normalizados.append({
-            "ejemplar": ejemplar,
-            "ubi": ubicacion,
-            "entrada": parsear_fecha_iso(entrada),
-            "salida": parsear_fecha_iso(salida),
-        })
-
-    return registros_normalizados
-
-
-from collections import defaultdict
-from itertools import combinations
-
-def calcular_matriz_coexistencia(
-    registros: list[dict[str, Any]],
-    ejemplares: list[dict[str, Any]],
-) -> dict[int, dict[int, int]]:
-    matriz = defaultdict(lambda: defaultdict(int))
-
-    registros_norm = normalizar_registros_para_matriz(registros)
-
-    # MODO SIMULACIÓN: usamos todos los ejemplares presentes en los registros
-    registros_validos = registros_norm
-
-    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for r in registros_validos:
-        registros_por_ubicacion[r["ubi"]].append(r)
-
-    for _, regs_ubi in registros_por_ubicacion.items():
-        for reg_a, reg_b in combinations(regs_ubi, 2):
-            ej_a = reg_a["ejemplar"]
-            ej_b = reg_b["ejemplar"]
-
-            if ej_a == ej_b:
-                continue
-
-            solape = calcular_solape_segundos(
-                reg_a["entrada"],
-                reg_a["salida"],
-                reg_b["entrada"],
-                reg_b["salida"],
-            )
-
-            if solape > 0:
-                matriz[ej_a][ej_b] += solape
-                matriz[ej_b][ej_a] += solape
-
-    return {k: dict(v) for k, v in matriz.items()}
-
-def calcular_matriz_coincidencias_puras(
-    registros: list[dict[str, Any]],
-) -> dict[int, dict[int, int]]:
-    """
-    Matriz donde cada célula es el número de veces que dos ejemplares coinciden
-    en una misma ubicación, sin importar cuántos segundos compartan.
-    """
-    matriz = defaultdict(lambda: defaultdict(int))
-    registros_norm = normalizar_registros_para_matriz(registros)
-    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
-
-    for r in registros_norm:
-        registros_por_ubicacion[r["ubi"]].append(r)
-
-    for _, regs_ubi in registros_por_ubicacion.items():
-        for reg_a, reg_b in combinations(regs_ubi, 2):
-            ej_a = reg_a["ejemplar"]
-            ej_b = reg_b["ejemplar"]
-            if ej_a == ej_b:
-                continue
-
-            solape = calcular_solape_segundos(
-                reg_a["entrada"], reg_a["salida"],
-                reg_b["entrada"], reg_b["salida"],
-            )
-            if solape > 0:
-                matriz[ej_a][ej_b] += 1
-                matriz[ej_b][ej_a] += 1
-
-    return {k: dict(v) for k, v in matriz.items()}
-
-
-def calcular_matriz_coincidencias_umbral(
-    registros: list[dict[str, Any]],
-    umbral_segundos: int,
-) -> dict[int, dict[int, int]]:
-    """
-    Matriz donde cada célula es el número de veces que dos ejemplares coinciden
-    en una ubicación y el tiempo compartido supera un umbral X (en segundos).
-    """
-    matriz = defaultdict(lambda: defaultdict(int))
-    registros_norm = normalizar_registros_para_matriz(registros)
-    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
-
-    for r in registros_norm:
-        registros_por_ubicacion[r["ubi"]].append(r)
-
-    for _, regs_ubi in registros_por_ubicacion.items():
-        for reg_a, reg_b in combinations(regs_ubi, 2):
-            ej_a = reg_a["ejemplar"]
-            ej_b = reg_b["ejemplar"]
-            if ej_a == ej_b:
-                continue
-
-            solape = calcular_solape_segundos(
-                reg_a["entrada"], reg_a["salida"],
-                reg_b["entrada"], reg_b["salida"],
-            )
-            if solape >= umbral_segundos:
-                matriz[ej_a][ej_b] += 1
-                matriz[ej_b][ej_a] += 1
-
-    return {k: dict(v) for k, v in matriz.items()}
-
-import csv
-from pathlib import Path
-
-def cargar_registros_ficticios(desde_csv: str | Path) -> list[dict[str, Any]]:
-    ruta = Path(desde_csv)
-    registros: list[dict[str, Any]] = []
-
-    with ruta.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f, delimiter=";")
-        for row in reader:
-            registros.append({
-                "id": int(row["id"]),
-                "entrada": row["entrada"],
-                "salida": row["salida"],
-                "duracion": int(row["duracion"]),
-                "detecciones": int(row["detecciones"]),
-                "ejemplar": int(row["ejemplar_id"]),
-                "ubi": int(row["ubi_id"]),
-            })
-
-    return registros
