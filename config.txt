@@ -5,3 +5,5 @@ endpoint_registros=/api/registros
 endpoint_rfids=/api/rfid
 grupo_ejemplar=Enganche
 mes=02/2026
+start_date: date = date(2026, 6, 1)
+end_date: date = date(2026, 7, 1)

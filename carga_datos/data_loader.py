@@ -101,19 +101,20 @@ def filtrar_registros(
     ejemplares: list[dict[str, Any]],
     ubicaciones: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    ids_ejemplares = {e["id"] for e in ejemplares}
+    # MODO SIMULACIÓN: filtramos solo por ubicaciones de comer/beber
     ids_ubicaciones = {u["id"] for u in ubicaciones}
 
     return [
         r for r in registros
-        if r.get("ejemplar") in ids_ejemplares and r.get("ubi") in ids_ubicaciones
+        if r.get("ubi") in ids_ubicaciones
     ]
 
 
 def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
     ejemplares = cargar_ejemplares(config)
     ubicaciones = cargar_ubicaciones(config)
-    registros = cargar_registros(config)
+    # registros = cargar_registros(config)
+    registros = cargar_registros_ficticios("registros_sesiones_generados.csv")
 
     grupo_objetivo = config.get("grupo_ejemplar", "Enganche")
     mes_objetivo = config.get("mes", "02/2026")
@@ -190,19 +191,19 @@ def normalizar_registros_para_matriz(
     return registros_normalizados
 
 
+from collections import defaultdict
+from itertools import combinations
+
 def calcular_matriz_coexistencia(
     registros: list[dict[str, Any]],
     ejemplares: list[dict[str, Any]],
 ) -> dict[int, dict[int, int]]:
     matriz = defaultdict(lambda: defaultdict(int))
 
-    ids_ejemplares = {e["id"] for e in ejemplares}
     registros_norm = normalizar_registros_para_matriz(registros)
 
-    registros_validos = [
-        r for r in registros_norm
-        if r["ejemplar"] in ids_ejemplares
-    ]
+    # MODO SIMULACIÓN: usamos todos los ejemplares presentes en los registros
+    registros_validos = registros_norm
 
     registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for r in registros_validos:
@@ -228,3 +229,25 @@ def calcular_matriz_coexistencia(
                 matriz[ej_b][ej_a] += solape
 
     return {k: dict(v) for k, v in matriz.items()}
+
+import csv
+from pathlib import Path
+
+def cargar_registros_ficticios(desde_csv: str | Path) -> list[dict[str, Any]]:
+    ruta = Path(desde_csv)
+    registros: list[dict[str, Any]] = []
+
+    with ruta.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter=";")
+        for row in reader:
+            registros.append({
+                "id": int(row["id"]),
+                "entrada": row["entrada"],
+                "salida": row["salida"],
+                "duracion": int(row["duracion"]),
+                "detecciones": int(row["detecciones"]),
+                "ejemplar": int(row["ejemplar_id"]),
+                "ubi": int(row["ubi_id"]),
+            })
+
+    return registros
