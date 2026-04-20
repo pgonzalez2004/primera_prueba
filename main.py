@@ -5,6 +5,8 @@ from carga_datos.data_loader import (
     cargar_datos_filtrados,
 )
 
+from algoritmo_clustering.clustering_algorithm import ejecutar_kmeans, probar_varios_k
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / 'config.txt'
 
@@ -12,6 +14,16 @@ CONFIG_PATH = BASE_DIR / 'config.txt'
 def main() -> None:
     config = cargar_configuracion(CONFIG_PATH)
     datos = cargar_datos_filtrados(config)
+    
+    resultado_kmeans, score_kmeans = ejecutar_kmeans(
+        datos["matriz_coexistencia"],
+        n_clusters=3,
+    )
+
+    evaluacion_k = probar_varios_k(
+        datos["matriz_coexistencia"],
+        ks=[2, 3, 4, 5],
+    )
 
     print("=== RESUMEN ===")
     print(f"Mes configurado: {datos['mes_objetivo']}")
@@ -39,6 +51,28 @@ def main() -> None:
     for registro in datos['registros_filtrados'][:3]:
         print(registro)
 
+    print("\n=== CLUSTERING KMEANS ===")
+    print(f"Silhouette score (k=3): {score_kmeans:.4f}")
+    print(resultado_kmeans[["ejemplar_id", "cluster"]].sort_values(["cluster", "ejemplar_id"]).to_string(index=False))
+
+    ("\n=== EVALUACIÓN DISTINTOS K ===")
+    print(evaluacion_k.to_string(index=False))
+
+    print("\nTamaño de cada cluster (k=3):")
+    print(resultado_kmeans["cluster"].value_counts())
+    
+    resultado_kmeans.to_csv(
+        r"C:\Users\PilarGonzálezBejaran\Desktop\HORSEDATA PILAR\salida_clusters_k3.csv",
+        index=False,
+        sep=';',
+    )
+
+    evaluacion_k.to_csv(
+        r"C:\Users\PilarGonzálezBejaran\Desktop\HORSEDATA PILAR\salida_evaluacion_k.csv",
+        index=False,
+        sep=';',
+    )
+    print("\nFicheros guardados: salida_clusters_k3.csv y salida_evaluacion_k.csv")
 
 if __name__ == '__main__':
     main()
