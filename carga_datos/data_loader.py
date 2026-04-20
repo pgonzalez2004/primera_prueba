@@ -1,6 +1,7 @@
 from __future__ import annotations
-
+from collections import defaultdict
 from datetime import datetime, timedelta
+from itertools import combinations
 from typing import Any
 from urllib.parse import urljoin
 
@@ -129,6 +130,11 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         ejemplares_enganche,
         ubicaciones_comer_beber,
     )
+    
+    matriz_coexistencia = calcular_matriz_coexistencia(
+    registros_filtrados,
+    ejemplares_enganche,
+    )
 
     return {
         "config": config,
@@ -142,4 +148,83 @@ def cargar_datos_filtrados(config: dict[str, Any]) -> dict[str, Any]:
         "ejemplares_enganche": ejemplares_enganche,
         "ubicaciones_comer_beber": ubicaciones_comer_beber,
         "registros_filtrados": registros_filtrados,
+        "matriz_coexistencia": matriz_coexistencia,
     }
+    
+def parsear_fecha_iso(fecha_str: str) -> datetime:
+    return datetime.fromisoformat(fecha_str)
+
+
+def calcular_solape_segundos(
+    entrada_a: datetime,
+    salida_a: datetime,
+    entrada_b: datetime,
+    salida_b: datetime,
+) -> int:
+    inicio_solape = max(entrada_a, entrada_b)
+    fin_solape = min(salida_a, salida_b)
+    return max(0, int((fin_solape - inicio_solape).total_seconds()))
+
+
+def normalizar_registros_para_matriz(
+    registros: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    registros_normalizados = []
+
+    for r in registros:
+        entrada = r.get("entrada")
+        salida = r.get("salida")
+        ejemplar = r.get("ejemplar")
+        ubicacion = r.get("ubi")
+
+        if not entrada or not salida or ejemplar is None or ubicacion is None:
+            continue
+
+        registros_normalizados.append({
+            "ejemplar": ejemplar,
+            "ubi": ubicacion,
+            "entrada": parsear_fecha_iso(entrada),
+            "salida": parsear_fecha_iso(salida),
+        })
+
+    return registros_normalizados
+
+
+def calcular_matriz_coexistencia(
+    registros: list[dict[str, Any]],
+    ejemplares: list[dict[str, Any]],
+) -> dict[int, dict[int, int]]:
+    matriz = defaultdict(lambda: defaultdict(int))
+
+    ids_ejemplares = {e["id"] for e in ejemplares}
+    registros_norm = normalizar_registros_para_matriz(registros)
+
+    registros_validos = [
+        r for r in registros_norm
+        if r["ejemplar"] in ids_ejemplares
+    ]
+
+    registros_por_ubicacion: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for r in registros_validos:
+        registros_por_ubicacion[r["ubi"]].append(r)
+
+    for _, regs_ubi in registros_por_ubicacion.items():
+        for reg_a, reg_b in combinations(regs_ubi, 2):
+            ej_a = reg_a["ejemplar"]
+            ej_b = reg_b["ejemplar"]
+
+            if ej_a == ej_b:
+                continue
+
+            solape = calcular_solape_segundos(
+                reg_a["entrada"],
+                reg_a["salida"],
+                reg_b["entrada"],
+                reg_b["salida"],
+            )
+
+            if solape > 0:
+                matriz[ej_a][ej_b] += solape
+                matriz[ej_b][ej_a] += solape
+
+    return {k: dict(v) for k, v in matriz.items()}

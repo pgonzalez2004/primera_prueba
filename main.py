@@ -22,6 +22,8 @@ def main() -> None:
     print(f"Ubicaciones comer/beber: {len(datos['ubicaciones_comer_beber'])}")
     print(f"Registros del intervalo: {len(datos['registros'])}")
     print(f"Registros finales filtrados: {len(datos['registros_filtrados'])}")
+    print("\n=== MATRIZ COEXISTENCIA ===")
+    print(datos["matriz_coexistencia"])
 
     print(f"\n=== EJEMPLARES '{datos['grupo_objetivo']}' (primeros 3) ===")
     for ejemplar in datos['ejemplares_enganche'][:3]:
