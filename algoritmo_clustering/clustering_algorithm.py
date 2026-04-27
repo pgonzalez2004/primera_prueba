@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
@@ -86,3 +85,11 @@ def probar_varios_k(
         })
 
     return pd.DataFrame(resultados)
+
+
+def generar_ks_hasta_n_ejemplares(
+    matriz: dict[int, dict[int, int]]
+) -> list[int]:
+    df = matriz_a_dataframe(matriz)
+    n_ejemplares = len(df)
+    return list(range(2, n_ejemplares))

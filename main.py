@@ -5,7 +5,7 @@ from carga_datos.data_loader import (
     cargar_datos_filtrados,
 )
 
-from algoritmo_clustering.clustering_algorithm import ejecutar_kmeans, probar_varios_k, matriz_a_dataframe
+from algoritmo_clustering.clustering_algorithm import ejecutar_kmeans, probar_varios_k, matriz_a_dataframe, generar_ks_hasta_n_ejemplares
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / 'config.txt'
@@ -27,6 +27,9 @@ def main() -> None:
         datos["matriz_coexistencia"],
         n_clusters=3,
     )
+    
+    ks = generar_ks_hasta_n_ejemplares(datos["matriz_coexistencia"])
+    print(f"Valores de k que se van a probar: de {ks[0]} a {ks[-1]}")
 
     evaluacion_k = probar_varios_k(
         datos["matriz_coexistencia"],
