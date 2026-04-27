@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import pandas as pd
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
 from sklearn.preprocessing import StandardScaler
 
 
@@ -73,12 +73,16 @@ def probar_varios_k(
             max_iter=max_iter,
         )
         labels = modelo.fit_predict(X_scaled)
-        score = silhouette_score(X_scaled, labels)
+
+        sil = silhouette_score(X_scaled, labels)
+        ch = calinski_harabasz_score(X_scaled, labels)
+        inercia = modelo.inertia_
 
         resultados.append({
             "k": k,
-            "silhouette_score": score,
-            "inercia": modelo.inertia_,
+            "silhouette_score": sil,
+            "calinski_harabasz": ch,
+            "inercia": inercia,
         })
 
     return pd.DataFrame(resultados)

@@ -5,7 +5,7 @@ from carga_datos.data_loader import (
     cargar_datos_filtrados,
 )
 
-from algoritmo_clustering.clustering_algorithm import ejecutar_kmeans, probar_varios_k
+from algoritmo_clustering.clustering_algorithm import ejecutar_kmeans, probar_varios_k, matriz_a_dataframe
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / 'config.txt'
@@ -15,6 +15,14 @@ def main() -> None:
     config = cargar_configuracion(CONFIG_PATH)
     datos = cargar_datos_filtrados(config)
     
+    df_matriz = matriz_a_dataframe(datos["matriz_coexistencia"])
+    n_ejemplares = len(df_matriz)
+    ks = list(range(2, n_ejemplares))
+    
+    print(f"\nNúmero de ejemplares para clustering: {n_ejemplares}")
+    print(f"Valores de k que se van a probar: de 2 a {n_ejemplares}")
+    
+    
     resultado_kmeans, score_kmeans = ejecutar_kmeans(
         datos["matriz_coexistencia"],
         n_clusters=3,
@@ -22,7 +30,7 @@ def main() -> None:
 
     evaluacion_k = probar_varios_k(
         datos["matriz_coexistencia"],
-        ks=[2, 3, 4, 5],
+        ks= ks,
     )
 
     print("=== RESUMEN ===")
