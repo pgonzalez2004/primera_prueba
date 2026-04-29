@@ -290,24 +290,32 @@ def ejecutar_experimento():
     out_dir = Path("output")
     out_dir.mkdir(exist_ok=True)
     filas = []
-
+    
     for instancia in range(1, 31):
-        df = rows_to_df(generate_rows(Config(seed=instancia)))
-        n_ej = len(df["ejemplar_id"].unique())
+        # 2. Genera el número de caballos que quieres
+        n_ej = random.randint(20, 120)
+        print(f" Instancia {instancia}: Generando {n_ej} caballos...")
+        
+        # 3. Prepara la configuración con esos caballos
+        mis_ids = list(range(1, n_ej + 1))
+        cfg = Config(seed=instancia)
+        cfg.ejemplar_ids = mis_ids
+        
+        # 4. Genera los datos usando esa configuración
+        df = rows_to_df(generate_rows(cfg))
+        
+        # 5. Continúa con tu lógica habitual...
+        n_ej_real = len(df["ejemplar_id"].unique())
         
         for tipo_matriz in ["tiempo", "coincidencia", "coincidencia_30"]:
-            # Obtenemos la matriz y la normalizamos
             matriz = construir_matriz(df, tipo_matriz) / 30
-            
-            # Recibimos el resultado de la función
             resultados_modelo = evaluar_modelos(matriz)
             
-            # EL ESCUDO: Solo ejecutamos el bucle si resultados_modelo existe
             if resultados_modelo:
                 for res in resultados_modelo:
                     filas.append({
                         "Instancia": instancia, 
-                        "Nº de ejemplares": n_ej, 
+                        "Nº de ejemplares": n_ej,  # ← Número real de la función
                         "Matriz": tipo_matriz, 
                         "Modelo": res["modelo"],
                         "k": res["k"], 
