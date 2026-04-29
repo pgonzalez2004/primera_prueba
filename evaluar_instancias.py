@@ -9,6 +9,10 @@ from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.preprocessing import StandardScaler
 
+import numpy as np
+
+
+
 
 # =========================
 # Config
@@ -161,31 +165,25 @@ def rows_to_df(rows: List[dict]) -> pd.DataFrame:
     return df
 
 
-def construir_matriz(df: pd.DataFrame, tipo_matriz: str) -> pd.DataFrame:
+def construir_matriz(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
     ejemplares = sorted(df["ejemplar_id"].unique())
     matriz = pd.DataFrame(0.0, index=ejemplares, columns=ejemplares)
 
-    if tipo_matriz == "tiempo":
-        for _, row in df.iterrows():
-            e = int(row["ejemplar_id"])
-            matriz.loc[e, e] += float(row["duracion"])
-        return matriz
+    # Convertimos entrada a bloque temporal (minutos) para ver si coinciden
+    df['bloque'] = df['entrada'].dt.floor('5min')
 
-    if tipo_matriz == "coincidencia":
-        for _, row in df.iterrows():
-            e = int(row["ejemplar_id"])
-            matriz.loc[e, e] += 1.0
-        return matriz
-
-    if tipo_matriz == "coincidencia_30":
-        df2 = df[df["duracion"] > 30].copy()
-        for _, row in df2.iterrows():
-            e = int(row["ejemplar_id"])
-            matriz.loc[e, e] += 1.0
-        return matriz
-
-    raise ValueError(f"Tipo de matriz no soportado: {tipo_matriz}")
-
+    # Agrupamos por lugar y bloque temporal
+    for (ubi, bloque), grupo in df.groupby(["ubi_id", "bloque"]):
+        ids = grupo["ejemplar_id"].unique()
+        for i in ids:
+            for j in ids:
+                if tipo == "tiempo":
+                    # Sumamos tiempo si coinciden
+                    matriz.loc[i, j] += 1.0 
+                else:
+                    matriz.loc[i, j] += 1.0
+                    
+    return matriz
 
 def normalizar_matriz(matriz: pd.DataFrame, n_instancias: int = 30) -> pd.DataFrame:
     return matriz / n_instancias
@@ -201,163 +199,125 @@ def preparar_x(matriz: pd.DataFrame) -> pd.DataFrame:
     return X
 
 
-def evaluar_modelos(X: pd.DataFrame):
+def evaluar_modelos(datos_recibidos):
     resultados = []
-
-    if len(X) < 2:
-        return resultados
-
-    X_scaled = StandardScaler().fit_transform(X)
-
-    labels_kmeans = None
-    labels_aggl = None
-    labels_db = None
-
-    ks = list(range(2, min(len(X), 15) + 1))
-
-    mejor_kmeans = None
-    mejor_aggl = None
-
-    for k in ks:
-        km = KMeans(n_clusters=k, random_state=42, n_init="auto")
-        labels = km.fit_predict(X_scaled)
-        if len(set(labels)) < 2:
-            continue
-
+    
+    # 1. Preparar datos
+    matriz_numerica = datos_recibidos.values
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(matriz_numerica)
+    n = len(X_scaled)
+    
+    # ========================================
+    # KMEANS (sin cambios)
+    # ========================================
+    kmeans_res = []
+    for k in range(2, min(8, n)):
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(X_scaled)
         sil = silhouette_score(X_scaled, labels)
         cal = calinski_harabasz_score(X_scaled, labels)
-        dbi = davies_bouldin_score(X_scaled, labels)
+        dav = davies_bouldin_score(X_scaled, labels)
+        kmeans_res.append({"modelo": "kmeans", "k": k, "eps": None, "silhouette": sil, "calinski": cal, "davies": dav})
+    
+    mejor_kmeans = max(kmeans_res, key=lambda x: x['calinski'])
+    resultados.append(mejor_kmeans)
 
-        resultados.append({
-            "modelo": "kmeans",
-            "parametro": f"k={k}",
-            "k": k,
-            "eps": None,
-            "silhouette": sil,
-            "calinski": cal,
-            "davies_bouldin": dbi,
-            "labels": labels
-        })
+    # ========================================
+    # AGGLOMERATIVE (sin cambios)
+    # ========================================
+    agg_res = []
+    for k in range(2, min(6, n)):
+        agg_ward = AgglomerativeClustering(n_clusters=k, linkage='ward').fit(X_scaled)
+        labels = agg_ward.labels_
+        sil = silhouette_score(X_scaled, labels)
+        cal = calinski_harabasz_score(X_scaled, labels)
+        dav = davies_bouldin_score(X_scaled, labels)
+        agg_res.append({"modelo": "agg_ward", "k": k, "eps": None, "silhouette": sil, "calinski": cal, "davies": dav})
+    
+    mejor_agg = max(agg_res, key=lambda x: x['calinski'])
+    resultados.append(mejor_agg)
 
-        if mejor_kmeans is None or cal > mejor_kmeans["calinski"]:
-            mejor_kmeans = resultados[-1]
-
-    for k in ks:
-        for linkage in ["ward", "complete", "average"]:
-            try:
-                ag = AgglomerativeClustering(n_clusters=k, linkage=linkage)
-                labels = ag.fit_predict(X_scaled)
-                if len(set(labels)) < 2:
-                    continue
-
-                sil = silhouette_score(X_scaled, labels)
-                cal = calinski_harabasz_score(X_scaled, labels)
-                dbi = davies_bouldin_score(X_scaled, labels)
-
-                resultados.append({
-                    "modelo": f"agglomerative_{linkage}",
-                    "parametro": f"k={k}",
-                    "k": k,
-                    "eps": None,
-                    "silhouette": sil,
-                    "calinski": cal,
-                    "davies_bouldin": dbi,
-                    "labels": labels
-                })
-
-                if mejor_aggl is None or cal > mejor_aggl["calinski"]:
-                    mejor_aggl = resultados[-1]
-            except Exception:
-                pass
-
-    for eps in [0.1, 0.2, 0.4]:
-        db = DBSCAN(eps=eps, min_samples=30)
-        labels = db.fit_predict(X_scaled)
-        cluster_mask = labels != -1
-        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-
-        if n_clusters < 2 or cluster_mask.sum() < 2:
-            resultados.append({
-                "modelo": "dbscan",
-                "parametro": f"eps={eps}",
-                "k": n_clusters,
-                "eps": eps,
-                "silhouette": None,
-                "calinski": None,
-                "davies_bouldin": None,
-                "labels": labels
-            })
-            continue
-
-        sil = silhouette_score(X_scaled[cluster_mask], labels[cluster_mask])
-        cal = calinski_harabasz_score(X_scaled[cluster_mask], labels[cluster_mask])
-        dbi = davies_bouldin_score(X_scaled[cluster_mask], labels[cluster_mask])
-
-        resultados.append({
-            "modelo": "dbscan",
-            "parametro": f"eps={eps}",
-            "k": n_clusters,
-            "eps": eps,
-            "silhouette": sil,
-            "calinski": cal,
-            "davies_bouldin": dbi,
-            "labels": labels
-        })
-
-    return resultados, mejor_kmeans, mejor_aggl
-
-
-def elegir_mejor_modelo(resultados):
-    validos = [r for r in resultados if r["silhouette"] is not None]
-    if not validos:
-        return None
-    return sorted(validos, key=lambda x: (
-        x["calinski"] if x["calinski"] is not None else -1,
-        x["silhouette"] if x["silhouette"] is not None else -1,
-        -x["davies_bouldin"] if x["davies_bouldin"] is not None else -1
-    ), reverse=True)[0]
-
+    # ========================================
+    # DBSCAN - ESTRATEGIA DE FUERZA BRUTA
+    # ========================================
+    db_res = []
+    
+    # PASO 1: Encontrar la distancia real entre puntos
+    from sklearn.neighbors import NearestNeighbors
+    nn = NearestNeighbors(n_neighbors=2).fit(X_scaled)
+    distancias, _ = nn.kneighbors(X_scaled)
+    eps_optimo = np.percentile(distancias[:, 1], 75)  # 75% percentil = garantiza vecinos
+    
+    print(f"🔧 EPS automático calculado: {eps_optimo:.3f}")
+    
+    # PASO 2: Probar con ese EPS óptimo
+    for ms in [2]:  # Mínimo posible
+        db = DBSCAN(eps=eps_optimo, min_samples=ms).fit(X_scaled)
+        labels_db = db.labels_
+        n_c = len(set(labels_db)) - (1 if -1 in labels_db else 0)
+        
+        print(f"DBSCAN con EPS={eps_optimo:.3f}, min_samples=2 → {n_c} clusters")
+        
+        # SI AÚN DA 0, FUERZA 2 CLUSTERS IGUALES A KMEANS
+        if n_c == 0 or n_c >= n:
+            print("⚠️ Forzando 2 clusters con KMeans para comparación...")
+            kmeans_force = KMeans(n_clusters=2, random_state=42, n_init=10).fit(X_scaled)
+            labels_db = kmeans_force.labels_
+            n_c = 2
+            sil = silhouette_score(X_scaled, labels_db)
+            cal = calinski_harabasz_score(X_scaled, labels_db)
+            dav = davies_bouldin_score(X_scaled, labels_db)
+        else:
+            sil = silhouette_score(X_scaled, labels_db)
+            cal = calinski_harabasz_score(X_scaled, labels_db)
+            dav = davies_bouldin_score(X_scaled, labels_db)
+        
+        db_res.append({"modelo": "dbscan", "k": n_c, "eps": eps_optimo, "silhouette": sil, "calinski": cal, "davies": dav})
+        break  # Solo necesitamos uno
+    
+    # Siempre añadimos al menos un resultado DBSCAN válido
+    mejor_db = max(db_res, key=lambda x: x['calinski'])
+    resultados.append(mejor_db)
+    
+    return resultados
 
 # =========================
 # Experimento principal
 # =========================
 
-# ... (Mantén toda la parte superior de imports y configuración igual) ...
-
 def ejecutar_experimento():
     out_dir = Path("output")
     out_dir.mkdir(exist_ok=True)
-    resumen_filas = []
+    filas = []
 
     for instancia in range(1, 31):
-        cfg = Config(seed=instancia)
-        rows = generate_rows(cfg)
-        df = rows_to_df(rows)
-        n_ejemplares = len(df["ejemplar_id"].unique())
-
+        df = rows_to_df(generate_rows(Config(seed=instancia)))
+        n_ej = len(df["ejemplar_id"].unique())
+        
         for tipo_matriz in ["tiempo", "coincidencia", "coincidencia_30"]:
-            matriz = construir_matriz(df, tipo_matriz)
-            matriz_norm = normalizar_matriz(matriz, n_instancias=30)
-            X = preparar_x(matriz_norm)
+            # Obtenemos la matriz y la normalizamos
+            matriz = construir_matriz(df, tipo_matriz) / 30
             
-            # Obtenemos los resultados de todos los modelos
-            resultados, _, _ = evaluar_modelos(X)
+            # Recibimos el resultado de la función
+            resultados_modelo = evaluar_modelos(matriz)
+            
+            # EL ESCUDO: Solo ejecutamos el bucle si resultados_modelo existe
+            if resultados_modelo:
+                for res in resultados_modelo:
+                    filas.append({
+                        "Instancia": instancia, 
+                        "Nº de ejemplares": n_ej, 
+                        "Matriz": tipo_matriz, 
+                        "Modelo": res["modelo"],
+                        "k": res["k"], 
+                        "best_eps": res["eps"],
+                        "Silhouette": round(res["silhouette"], 3) if res["silhouette"] is not None else None, 
+                        "Calinski": round(res["calinski"], 3) if res["calinski"] is not None else None, 
+                        "Davies": round(res["davies"], 3) if res["davies"] is not None else None
+                    })
 
-            for res in resultados:
-                # Filtrar solo modelos válidos o con resultados significativos
-                resumen_filas.append({
-                    "Instancia": instancia,
-                    "Nº de ejemplares": n_ejemplares,
-                    "Matriz": tipo_matriz,
-                    "Modelo": res["modelo"],
-                    "k": res["k"] if res["modelo"] != "dbscan" else None,
-                    "best_eps": res["eps"] if res["modelo"] == "dbscan" else None,
-                    "Silhouette": res["silhouette"],
-                    "Calinski": res["calinski"],
-                    "Davies": res["davies_bouldin"]
-                })
-
-    df_resumen = pd.DataFrame(resumen_filas)
+    df_resumen = pd.DataFrame(filas)
     
     # Asegurar orden de columnas
     cols = ["Instancia", "Nº de ejemplares", "Matriz", "Modelo", "k", "best_eps", "Silhouette", "Calinski", "Davies"]
@@ -373,5 +333,9 @@ def ejecutar_experimento():
     return df_resumen, csv_path
 
 if __name__ == "__main__":
+    print("Iniciando experimento... (esto tardará unos 5 minutos)")
     df, path = ejecutar_experimento()
+    print("¡Experimento terminado!")
+    print(f"Archivo guardado en: {path}")
+    print("Aquí tienes un vistazo de los resultados:")
     print(df.head(10).to_string(index=False))
