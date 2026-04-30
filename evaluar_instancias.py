@@ -7,7 +7,7 @@ from typing import List, Tuple, Optional, Dict
 import pandas as pd
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 
 import numpy as np
 
@@ -185,9 +185,6 @@ def construir_matriz(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
                     
     return matriz
 
-def normalizar_matriz(matriz: pd.DataFrame, n_instancias: int = 30) -> pd.DataFrame:
-    return matriz / n_instancias
-
 
 # =========================
 # Clustering y métricas
@@ -202,10 +199,22 @@ def preparar_x(matriz: pd.DataFrame) -> pd.DataFrame:
 def evaluar_modelos(datos_recibidos):
     resultados = []
     
-    # 1. Preparar datos
+    # 1. Preparar datos y escalar
     matriz_numerica = datos_recibidos.values
-    scaler = StandardScaler()
+    scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(matriz_numerica)
+    n = len(X_scaled)
+    
+    # 2. CALCULAR EPS SOBRE LA MATRIZ (0-1) PARA QUE SEA PEQUEÑO
+    from sklearn.neighbors import NearestNeighbors
+    nn = NearestNeighbors(n_neighbors=2).fit(matriz_numerica) # Calculamos sobre la matriz limpia
+    distancias, _ = nn.kneighbors(matriz_numerica)
+    eps_optimo = np.percentile(distancias[:, 1], 50) # Percentil 50 es más estable
+    
+    print(f"🔧 EPS automático calculado (pequeño): {eps_optimo:.4f}")
+    
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(datos_recibidos)
     n = len(X_scaled)
     
     # ========================================
@@ -238,49 +247,47 @@ def evaluar_modelos(datos_recibidos):
     mejor_agg = max(agg_res, key=lambda x: x['calinski'])
     resultados.append(mejor_agg)
 
-    # ========================================
-    # DBSCAN - ESTRATEGIA DE FUERZA BRUTA
+        # ========================================
+    # DBSCAN - ESTRATEGIA ROBUSTA (Corregida)
     # ========================================
     db_res = []
-    
-    # PASO 1: Encontrar la distancia real entre puntos
-    from sklearn.neighbors import NearestNeighbors
     nn = NearestNeighbors(n_neighbors=2).fit(X_scaled)
     distancias, _ = nn.kneighbors(X_scaled)
-    eps_optimo = np.percentile(distancias[:, 1], 75)  # 75% percentil = garantiza vecinos
+    mediana_dist = np.median(distancias[:, 1])
     
-    print(f"🔧 EPS automático calculado: {eps_optimo:.3f}")
-    
-    # PASO 2: Probar con ese EPS óptimo
-    for ms in [2]:  # Mínimo posible
-        db = DBSCAN(eps=eps_optimo, min_samples=ms).fit(X_scaled)
-        labels_db = db.labels_
-        n_c = len(set(labels_db)) - (1 if -1 in labels_db else 0)
+    for eps in [mediana_dist * 0.7, mediana_dist, mediana_dist * 1.3]:
+        db = DBSCAN(eps=eps, min_samples=3).fit(X_scaled)
+        labels = db.labels_
+        mask = labels != -1
         
-        print(f"DBSCAN con EPS={eps_optimo:.3f}, min_samples=2 → {n_c} clusters")
-        
-        # SI AÚN DA 0, FUERZA 2 CLUSTERS IGUALES A KMEANS
-        if n_c == 0 or n_c >= n:
-            print("⚠️ Forzando 2 clusters con KMeans para comparación...")
-            kmeans_force = KMeans(n_clusters=2, random_state=42, n_init=10).fit(X_scaled)
-            labels_db = kmeans_force.labels_
-            n_c = 2
-            sil = silhouette_score(X_scaled, labels_db)
-            cal = calinski_harabasz_score(X_scaled, labels_db)
-            dav = davies_bouldin_score(X_scaled, labels_db)
-        else:
-            sil = silhouette_score(X_scaled, labels_db)
-            cal = calinski_harabasz_score(X_scaled, labels_db)
-            dav = davies_bouldin_score(X_scaled, labels_db)
-        
-        db_res.append({"modelo": "dbscan", "k": n_c, "eps": eps_optimo, "silhouette": sil, "calinski": cal, "davies": dav})
-        break  # Solo necesitamos uno
-    
-    # Siempre añadimos al menos un resultado DBSCAN válido
-    mejor_db = max(db_res, key=lambda x: x['calinski'])
-    resultados.append(mejor_db)
+        # Solo calculamos si hay al menos 2 clusters encontrados
+        if sum(mask) > 0 and len(set(labels[mask])) > 1:
+            n_c = len(set(labels[mask]))
+            sil = silhouette_score(X_scaled[mask], labels[mask])
+            cal = calinski_harabasz_score(X_scaled[mask], labels[mask])
+            dav = davies_bouldin_score(X_scaled[mask], labels[mask])
+            
+            # Calculamos el score aquí dentro para que siempre exista
+            score = (sil * 0.6) + ((cal / 1000) * 0.4) 
+            
+            db_res.append({
+                "k": n_c, "eps": eps, "sil": sil, 
+                "cal": cal, "dav": dav, "score": score
+            })
+
+    # SELECCIÓN FINAL: Ahora el 'score' ya existe en todos los elementos de db_res
+    if db_res:
+        mejor = max(db_res, key=lambda x: x['score'])
+        resultados.append({
+            "modelo": "dbscan", "k": mejor['k'], "eps": mejor['eps'], 
+            "silhouette": mejor['sil'], "calinski": mejor['cal'], "davies": mejor['dav']
+        })
+    else:
+        # Fallback si no encuentra clusters válidos
+        resultados.append({"modelo": "dbscan", "k": 0, "eps": 0, "silhouette": 0, "calinski": 0, "davies": 0})
     
     return resultados
+
 
 # =========================
 # Experimento principal
@@ -308,7 +315,20 @@ def ejecutar_experimento():
         n_ej_real = len(df["ejemplar_id"].unique())
         
         for tipo_matriz in ["tiempo", "coincidencia", "coincidencia_30"]:
-            matriz = construir_matriz(df, tipo_matriz) / 30
+            # 1. Construimos la matriz sin dividir
+            matriz_cruda = construir_matriz(df, tipo_matriz)
+            
+            # 2. Normalizamos dividiendo por el valor máximo (si el máximo es > 0)
+            max_val = matriz_cruda.values.max()
+            matriz = matriz_cruda / max_val
+            if max_val > 0:
+                matriz = matriz_cruda / max_val
+            else:
+                matriz = matriz_cruda
+
+            # Imprime esto aquí también para estar 100% seguros
+            print(f"DEBUG: Valor máximo enviado a evaluar_modelos: {matriz.values.max():.4f}")
+            
             resultados_modelo = evaluar_modelos(matriz)
             
             if resultados_modelo:
@@ -319,7 +339,7 @@ def ejecutar_experimento():
                         "Matriz": tipo_matriz, 
                         "Modelo": res["modelo"],
                         "k": res["k"], 
-                        "best_eps": res["eps"],
+                        "best_eps": round(res["eps"], 4) if res["eps"] is not None else None, # <-- AÑADE EL ROUND AQUÍ
                         "Silhouette": round(res["silhouette"], 3) if res["silhouette"] is not None else None, 
                         "Calinski": round(res["calinski"], 3) if res["calinski"] is not None else None, 
                         "Davies": round(res["davies"], 3) if res["davies"] is not None else None
@@ -341,9 +361,9 @@ def ejecutar_experimento():
     return df_resumen, csv_path
 
 if __name__ == "__main__":
-    print("Iniciando experimento... (esto tardará unos 5 minutos)")
+    print("Iniciando experimento... (esto tardará unos 30 minutos)")
     df, path = ejecutar_experimento()
     print("¡Experimento terminado!")
     print(f"Archivo guardado en: {path}")
     print("Aquí tienes un vistazo de los resultados:")
-    print(df.head(10).to_string(index=False))
+    print(df.head(50).to_string(index=False))
