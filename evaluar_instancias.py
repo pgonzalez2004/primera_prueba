@@ -313,6 +313,7 @@ def ejecutar_experimento():
     out_dir = Path("output")
     out_dir.mkdir(exist_ok=True)
     filas = []
+    matrices_por_instancia = {}
     
     for instancia in range(1, 5):
         # 2. Genera el número de caballos que quieres
@@ -327,12 +328,16 @@ def ejecutar_experimento():
         # 4. Genera los datos usando esa configuración
         df = rows_to_df(generate_rows(cfg))
         
+        matrices_por_instancia[instancia] = []
+        
         # 5. Continúa con tu lógica habitual...
         n_ej_real = len(df["ejemplar_id"].unique())
         
         for tipo_matriz in ["tiempo", "coincidencia", "coincidencia_30"]:
             # 1. Construimos la matriz sin dividir
             matriz_cruda = construir_matriz(df, tipo_matriz)
+            matrices_por_instancia[instancia].append((tipo_matriz, matriz_cruda.copy()))
+            
             print(tipo_matriz)
             
             print(matriz_cruda.head())
@@ -341,7 +346,7 @@ def ejecutar_experimento():
             
             # 2. Normalizamos dividiendo por el valor máximo (si el máximo es > 0)
             max_val = matriz_cruda.values.max()
-            matriz = matriz_cruda / max_val
+            
             if max_val > 0:
                 matriz = matriz_cruda / max_val
             else:
@@ -374,11 +379,28 @@ def ejecutar_experimento():
     
     csv_path = out_dir / "resultado_resumen_final.csv"
     excel_path = out_dir / "resultado_resumen_final.xlsx"
-    
+
     df_resumen.to_csv(csv_path, index=False, sep=";")
     df_resumen.to_excel(excel_path, index=False)
-    
-    print(f"Resumen generado exitosamente en {out_dir}")
+
+    matrices_path = out_dir / "matrices_crudas_por_instancia.xlsx"
+
+    with pd.ExcelWriter(matrices_path, engine="openpyxl") as writer:
+        for instancia, matrices in matrices_por_instancia.items():
+            sheet_name = f"Instancia_{instancia}"
+            start_row = 0
+
+            for tipo_matriz, matriz_cruda in matrices:
+                titulo = pd.DataFrame([[f"Matriz: {tipo_matriz}"]])
+                titulo.to_excel(writer, sheet_name=sheet_name, startrow=start_row, index=False, header=False)
+
+                matriz_cruda.to_excel(writer, sheet_name=sheet_name, startrow=start_row + 2)
+
+                start_row += len(matriz_cruda) + 5
+
+    print(f"Resumen generado en: {excel_path}")
+    print(f"Matrices crudas guardadas en: {matrices_path}")
+                
     return df_resumen, csv_path
 
 if __name__ == "__main__":
