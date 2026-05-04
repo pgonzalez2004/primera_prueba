@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, time, date, timezone
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
+from matriz_relaciones import matrix
 
 import pandas as pd
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
@@ -166,24 +167,39 @@ def rows_to_df(rows: List[dict]) -> pd.DataFrame:
 
 
 def construir_matriz(df: pd.DataFrame, tipo: str) -> pd.DataFrame:
-    ejemplares = sorted(df["ejemplar_id"].unique())
-    matriz = pd.DataFrame(0.0, index=ejemplares, columns=ejemplares)
+    registros = []
 
-    # Convertimos entrada a bloque temporal (minutos) para ver si coinciden
-    df['bloque'] = df['entrada'].dt.floor('5min')
+    for _, row in df.iterrows():
+        registros.append({
+            "entrada": row["entrada"].isoformat(),
+            "salida": row["salida"].isoformat(),
+            "ejemplar": row["ejemplar_id"],
+            "ubi": row["ubi_id"],
+        })
 
-    # Agrupamos por lugar y bloque temporal
-    for (ubi, bloque), grupo in df.groupby(["ubi_id", "bloque"]):
-        ids = grupo["ejemplar_id"].unique()
-        for i in ids:
-            for j in ids:
-                if tipo == "tiempo":
-                    # Sumamos tiempo si coinciden
-                    matriz.loc[i, j] += 1.0 
-                else:
-                    matriz.loc[i, j] += 1.0
-                    
-    return matriz
+    ejemplares_ids = sorted(df["ejemplar_id"].unique())
+
+    ejemplares = [{"id": e} for e in ejemplares_ids]
+
+    if tipo == "tiempo":
+        matriz_dict = matrix.calcular_matriz_coexistencia(registros, ejemplares)
+
+    elif tipo == "coincidencia":
+        matriz_dict = matrix.calcular_matriz_coincidencias_puras(registros)
+
+    elif tipo == "coincidencia_30":
+        matriz_dict = matrix.calcular_matriz_coincidencias_umbral(registros, 30)
+
+    else:
+        raise ValueError(f"Tipo de matriz no reconocido: {tipo}")
+
+    matriz_df = pd.DataFrame(0.0, index=ejemplares_ids, columns=ejemplares_ids)
+
+    for ej_a, relaciones in matriz_dict.items():
+        for ej_b, valor in relaciones.items():
+            matriz_df.loc[ej_a, ej_b] = valor
+
+    return matriz_df
 
 
 # =========================
@@ -298,9 +314,9 @@ def ejecutar_experimento():
     out_dir.mkdir(exist_ok=True)
     filas = []
     
-    for instancia in range(1, 31):
+    for instancia in range(1, 5):
         # 2. Genera el número de caballos que quieres
-        n_ej = random.randint(20, 120)
+        n_ej = random.randint(10, 80)
         print(f" Instancia {instancia}: Generando {n_ej} caballos...")
         
         # 3. Prepara la configuración con esos caballos
@@ -317,6 +333,11 @@ def ejecutar_experimento():
         for tipo_matriz in ["tiempo", "coincidencia", "coincidencia_30"]:
             # 1. Construimos la matriz sin dividir
             matriz_cruda = construir_matriz(df, tipo_matriz)
+            print(tipo_matriz)
+            
+            print(matriz_cruda.head())
+
+            
             
             # 2. Normalizamos dividiendo por el valor máximo (si el máximo es > 0)
             max_val = matriz_cruda.values.max()
