@@ -479,7 +479,7 @@ def ejecutar_experimento():
     out_dir.mkdir(exist_ok=True)
     filas = []
     
-    for instancia in range(1, 11):
+    for instancia in range(1, 101):
         # 2. Genera el número de caballos que quieres
         n_ej = random.randint(10, 120)
         print(f" Instancia {instancia}: Generando {n_ej} caballos...")
@@ -548,7 +548,7 @@ def ejecutar_experimento():
     
     df_scores, df_mejor_por_matriz, df_mejor_por_instancia, df_ranking, df_tests = crear_analisis_estadistico(df_resumen)
 
-    analisis_path = out_dir / "analisis_estadistico.xlsx"
+    analisis_path = out_dir / "analisis_estadistico_100.xlsx"
 
     with pd.ExcelWriter(analisis_path, engine="openpyxl") as writer:
         df_resumen.to_excel(writer, sheet_name="resumen_resultados", index=False)
@@ -563,7 +563,7 @@ def ejecutar_experimento():
     return df_resumen, analisis_path
 
 if __name__ == "__main__":
-    print("Iniciando experimento... (esto tardará unos 50 minutos)")
+    print("Iniciando experimento... (esto tardará unos 30 minutos)")
     df, path = ejecutar_experimento()
     print("¡Experimento terminado!")
     print(f"Archivo guardado en: {path}")
